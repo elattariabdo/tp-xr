@@ -1,238 +1,313 @@
 
-<!DOCTYPE html>
-<html lang="fr">
+const THREE = AFRAME.THREE;
 
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+/* ---------- Petits outils : son et vibration ---------- */
 
-    <title>TP2 - Salle XR interactive</title>
+let ctxAudio = null;
 
-    <!-- Version A-Frame figée pour la reproductibilité -->
-    <script src="https://aframe.io/releases/1.7.1/aframe.min.js"></script>
+function bip(freq = 660, duree = 0.12) {
+    try {
+        ctxAudio = ctxAudio || new (window.AudioContext || window.webkitAudioContext)();
 
-    <style>
-        body {
-            margin: 0;
-            overflow: hidden;
-        }
+        const o = ctxAudio.createOscillator();
+        const g = ctxAudio.createGain();
 
-        #hud {
-            position: fixed;
-            bottom: 8px;
-            left: 8px;
-            right: 8px;
-            z-index: 10;
-            pointer-events: none;
-            font: 600 16px system-ui, sans-serif;
-            color: #fff;
-            text-shadow: 0 0 4px #000, 0 0 4px #000;
-        }
-    </style>
-</head>
+        o.frequency.value = freq;
+        g.gain.value = 0.15;
 
-<body>
+        o.connect(g);
+        g.connect(ctxAudio.destination);
 
-    <div id="hud">
-        Visez avec le point blanc, touchez l'écran pour agir.
-    </div>
+        o.start();
+        o.stop(ctxAudio.currentTime + duree);
 
-    <a-scene id="scene"
-             vr-mode-ui="enabled: false"
-             renderer="antialias: true">
+    } catch (e) {
+        // Pas de son : on continue
+    }
+}
 
-        <!-- ============ BLOC 1 : ENVIRONNEMENT ============ -->
-
-        <a-entity id="Environnement">
-
-            <!-- Ciel -->
-            <a-sky color="#9ec9ee"></a-sky>
-
-            <!-- Éclairage -->
-            <a-entity light="type: ambient; intensity: 0.7"></a-entity>
-
-            <a-entity light="type: directional; intensity: 0.8"
-                      position="1 4 2"></a-entity>
-
-            <!-- Sol -->
-            <a-plane id="Sol"
-                     class="interactif"
-                     teleport-sol
-                     rotation="-90 0 0"
-                     width="6"
-                     height="6"
-                     material="color: #c9c9c9; roughness: 0.9">
-            </a-plane>
-
-            <!-- Murs -->
-            <a-plane position="0 1.5 -3"
-                     width="6"
-                     height="3"
-                     material="color: #e8eef5">
-            </a-plane>
-
-            <a-plane position="-3 1.5 0"
-                     rotation="0 90 0"
-                     width="6"
-                     height="3"
-                     material="color: #e8eef5">
-            </a-plane>
-
-            <a-plane position="3 1.5 0"
-                     rotation="0 -90 0"
-                     width="6"
-                     height="3"
-                     material="color: #e8eef5">
-            </a-plane>
-
-            <a-plane position="0 1.5 3"
-                     rotation="0 180 0"
-                     width="6"
-                     height="3"
-                     material="color: #e8eef5">
-            </a-plane>
-
-            <!-- Table A : instruments -->
-            <a-entity id="Table_A" position="-0.6 0 -1">
-
-                <a-box position="0 0.725 0"
-                       width="1"
-                       height="0.05"
-                       depth="0.6"
-                       material="color: #8d6e63; roughness: 0.8">
-                </a-box>
-
-                <a-box position="-0.45 0.35 -0.25"
-                       width="0.05" height="0.7" depth="0.05"
-                       color="#5d4037"></a-box>
-
-                <a-box position="0.45 0.35 -0.25"
-                       width="0.05" height="0.7" depth="0.05"
-                       color="#5d4037"></a-box>
-
-                <a-box position="-0.45 0.35 0.25"
-                       width="0.05" height="0.7" depth="0.05"
-                       color="#5d4037"></a-box>
-
-                <a-box position="0.45 0.35 0.25"
-                       width="0.05" height="0.7" depth="0.05"
-                       color="#5d4037"></a-box>
-
-            </a-entity>
-
-            <!-- Table B : zones de dépôt -->
-            <a-entity id="Table_B" position="0.6 0 -1">
-
-                <a-box position="0 0.725 0"
-                       width="1"
-                       height="0.05"
-                       depth="0.6"
-                       material="color: #eceff1; roughness: 0.5">
-                </a-box>
-
-                <a-box position="-0.45 0.35 -0.25"
-                       width="0.05" height="0.7" depth="0.05"
-                       color="#90a4ae"></a-box>
-
-                <a-box position="0.45 0.35 -0.25"
-                       width="0.05" height="0.7" depth="0.05"
-                       color="#90a4ae"></a-box>
-
-                <a-box position="-0.45 0.35 0.25"
-                       width="0.05" height="0.7" depth="0.05"
-                       color="#90a4ae"></a-box>
-
-                <a-box position="0.45 0.35 0.25"
-                       width="0.05" height="0.7" depth="0.05"
-                       color="#90a4ae"></a-box>
-
-            </a-entity>
-
-            <!-- Panneau de mission -->
-            <a-plane position="0 2.0 -2.95"
-                     width="2.4"
-                     height="0.9"
-                     material="color: #1b2a41; shader: flat">
-            </a-plane>
-
-            <a-text id="Panneau"
-                    position="0 2.0 -2.93"
-                    width="2.2"
-                    align="center"
-                    color="#ffffff"
-                    value="Salle de formation\nPlacez chaque instrument\ndans sa zone.">
-            </a-text>
-
-            <a-text position="0 2.55 -2.93"
-                    width="2.2"
-                    align="center"
-                    color="#ffd54f"
-                    value="Prototype pédagogique - pas un dispositif médical">
-            </a-text>
-
-        </a-entity>
+function vibrer(motif) {
+    if (navigator.vibrate) navigator.vibrate(motif);
+}
 
 
-        <!-- ============ BLOC 4 : XR ORIGIN + CAMÉRA + CURSEUR ============ -->
+/* ---------- État global du jeu ---------- */
 
-        <a-entity id="rig"
-                  position="0 0 0.8"
-                  wasd-controls="acceleration: 15">
+const jeu = {
+    main: null,
+    score: 0,
+    erreurs: 0,
+    t0: null,
+    fini: false
+};
 
-            <a-entity id="tete"
-                      camera
-                      position="0 1.6 0"
-                      look-controls>
+const hud = document.getElementById('hud');
 
-                <a-entity id="curseur"
-                          cursor="fuse: false"
-                          raycaster="objects: .interactif; far: 8"
-                          position="0 0 -1"
-                          geometry="primitive: ring; radiusInner: 0.012; radiusOuter: 0.02"
-                          material="color: #ffffff; shader: flat; opacity: 0.9">
-                </a-entity>
+function majPanneau(msg) {
 
-            </a-entity>
+    document.getElementById('Panneau').setAttribute(
+        'text',
+        'value',
+        'Score : ' + jeu.score + ' / 3 Erreurs : ' + jeu.erreurs + '\n' + msg
+    );
 
-        </a-entity>
-
-    </a-scene>
+    hud.textContent = (
+        jeu.main
+            ? 'En main : ' + jeu.main.components.instrument.data.nom + ' - touchez sa zone'
+            : 'Touchez un instrument pour le saisir'
+    ) + ' | Score ' + jeu.score + '/3 Erreurs ' + jeu.erreurs;
+}
 
 
-    <!-- ============ SCRIPT JAVASCRIPT ============ -->
+/* ---------- Composant : téléportation ---------- */
 
-    <script>
+AFRAME.registerComponent('teleport-sol', {
 
-        // Composant de téléportation sur le sol
-        AFRAME.registerComponent('teleport-sol', {
+    init() {
 
-            init: function () {
+        this.el.addEventListener('click', e => {
 
-                this.el.addEventListener('click', () => {
+            if (!e.detail.intersection) return;
 
-                    const rig = document.querySelector('#rig');
-                    const intersection = this.el.components.raycaster;
+            const p = e.detail.intersection.point;
+            const rig = document.getElementById('rig');
 
-                    if (!intersection || !intersection.intersections.length) {
-                        return;
-                    }
+            const x = Math.max(-2.4, Math.min(2.4, p.x));
+            const z = Math.max(-2.4, Math.min(2.4, p.z));
 
-                    const point = intersection.intersections[0].point;
+            rig.object3D.position.set(x, 0, z);
 
-                    // Déplacer le rig vers le point visé
-                    rig.setAttribute('position', {
-                        x: point.x,
-                        y: 0,
-                        z: point.z
-                    });
+            bip(440, 0.08);
+        });
+    }
+});
 
-                });
 
-            }
+/* ---------- Composant : instrument ---------- */
 
+/* États : libre -> survole -> saisi -> (libre | depose) */
+
+AFRAME.registerComponent('instrument', {
+
+    schema: {
+        nom: { type: 'string' },
+        zone: { type: 'string' }
+    },
+
+    init() {
+
+        this.etat = 'libre';
+
+        this.posInit = this.el.object3D.position.clone();
+        this.rotInit = this.el.object3D.rotation.clone();
+
+        this.el.addEventListener('mouseenter', () => {
+            if (this.etat === 'libre') this.setEtat('survole');
         });
 
-    </script>
+        this.el.addEventListener('mouseleave', () => {
+            if (this.etat === 'survole') this.setEtat('libre');
+        });
 
-</body>
-</html>
+        this.el.addEventListener('click', () => {
+
+            if (this.etat === 'depose') return;
+
+            if (this.etat === 'saisi') {
+                this.relacher();
+            }
+            else if (!jeu.main) {
+                this.saisir();
+            }
+        });
+    },
+
+    setEtat(e) {
+
+        this.etat = e;
+
+        this.el.setAttribute(
+            'material',
+            'emissive',
+            e === 'survole' ? '#ffee58' : '#000000'
+        );
+
+        this.el.setAttribute(
+            'material',
+            'emissiveIntensity',
+            e === 'survole' ? 0.6 : 0
+        );
+    },
+
+    saisir() {
+
+        if (!jeu.t0) jeu.t0 = performance.now();
+
+        const tete = document.getElementById('tete');
+
+        tete.object3D.attach(this.el.object3D);
+
+        this.el.object3D.position.set(0.22, -0.22, -0.7);
+        this.el.object3D.rotation.set(0, 0, 0);
+
+        this.el.classList.remove('interactif');
+
+        jeu.main = this.el;
+
+        this.setEtat('saisi');
+
+        bip(520);
+        vibrer(30);
+
+        majPanneau('Vous tenez : ' + this.data.nom);
+    },
+
+    relacher() {
+
+        document.getElementById('scene').object3D.attach(this.el.object3D);
+
+        this.el.object3D.position.copy(this.posInit);
+        this.el.object3D.rotation.copy(this.rotInit);
+
+        this.el.classList.add('interactif');
+
+        jeu.main = null;
+
+        this.setEtat('libre');
+
+        bip(330, 0.1);
+
+        majPanneau('Instrument reposé.');
+    },
+
+    deposer(zoneEl) {
+
+        const p = new THREE.Vector3();
+
+        zoneEl.object3D.getWorldPosition(p);
+
+        document.getElementById('scene').object3D.attach(this.el.object3D);
+
+        this.el.object3D.position.set(p.x, p.y + 0.06, p.z);
+        this.el.object3D.rotation.set(0, 0, 0);
+
+        jeu.main = null;
+
+        this.setEtat('depose');
+    }
+});
+
+
+/* ---------- Composant : zone de dépôt ---------- */
+
+AFRAME.registerComponent('zone-depot', {
+
+    init() {
+
+        this.el.addEventListener('click', () => {
+
+            if (!jeu.main || jeu.fini) return;
+
+            const inst = jeu.main.components.instrument;
+
+            if (inst.data.zone === this.el.id) {
+
+                // Bonne zone
+                inst.deposer(this.el);
+
+                jeu.score++;
+
+                bip(880, 0.2);
+                vibrer([40, 60, 40]);
+
+                this.el.setAttribute('material', 'color', '#2e7d32');
+
+                if (jeu.score === 3) {
+
+                    jeu.fini = true;
+
+                    const s = ((performance.now() - jeu.t0) / 1000).toFixed(0);
+
+                    majPanneau('TERMINÉ en ' + s + ' s');
+
+                    console.log(
+                        'RESULTAT',
+                        JSON.stringify({
+                            secondes: +s,
+                            erreurs: jeu.erreurs
+                        })
+                    );
+
+                } else {
+
+                    majPanneau('Bien joué !');
+                }
+
+            } else {
+
+                // Mauvaise zone
+                jeu.erreurs++;
+
+                bip(180, 0.3);
+                vibrer([100, 50, 100]);
+
+                const ancienne = this.el.getAttribute('material').color;
+
+                this.el.setAttribute('material', 'color', '#d32f2f');
+
+                setTimeout(() => {
+                    this.el.setAttribute('material', 'color', ancienne);
+                }, 500);
+
+                inst.relacher();
+
+                majPanneau('Mauvaise zone. Réessayez.');
+            }
+        });
+    }
+});
+
+
+/* ---------- Outils de mesure : performance ---------- */
+
+// Ajouter ?stats à l'adresse pour afficher les FPS
+// Ajouter ?stress=200 pour ajouter 200 sphères
+
+const params = new URLSearchParams(location.search);
+
+const sceneEl = document.getElementById('scene');
+
+if (params.has('stats')) {
+    sceneEl.setAttribute('stats', '');
+}
+
+const nbStress = parseInt(params.get('stress') || '0', 10);
+
+for (let i = 0; i < nbStress; i++) {
+
+    const s = document.createElement('a-sphere');
+
+    s.setAttribute('radius', 0.08);
+    s.setAttribute('segments-width', 32);
+    s.setAttribute('segments-height', 32);
+
+    s.setAttribute('position', {
+        x: (Math.random() - 0.5) * 5,
+        y: 0.3 + Math.random() * 2.5,
+        z: (Math.random() - 0.5) * 5
+    });
+
+    s.setAttribute(
+        'material',
+        'color: #9575cd; metalness: 0.5; roughness: 0.3'
+    );
+
+    sceneEl.appendChild(s);
+}
+
+
+/* ---------- Initialisation ---------- */
+
+sceneEl.addEventListener('loaded', () => {
+    majPanneau('Saisissez un instrument.');
+});
