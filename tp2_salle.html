@@ -2,182 +2,480 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TP2 - Salle XR</title>
 
-    <title>TP2 - Salle XR interactive</title>
+  <script src="https://aframe.io/releases/1.7.1/aframe.min.js"></script>
 
-    <!-- Version figée : A-Frame 1.7.1 -->
-    <script src="https://cdn.jsdelivr.net/npm/aframe@1.7.1/dist/aframe-v1.7.1.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+    }
 
-    <style>
-        #hud {
-            position: fixed;
-            bottom: 8px;
-            left: 8px;
-            right: 8px;
-            z-index: 10;
-            pointer-events: none;
-            font: 600 16px system-ui, sans-serif;
-            color: #fff;
-            text-shadow: 0 0 4px #000, 0 0 4px #000;
+    #hud {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      z-index: 10;
+      padding: 12px 16px;
+      color: white;
+      background: rgba(0, 0, 0, 0.75);
+      border-radius: 8px;
+      font-size: 14px;
+    }
+  </style>
+
+  <script>
+    const THREE = AFRAME.THREE;
+
+    // État général du jeu
+    const jeu = {
+      main: null,
+      score: 0,
+      erreurs: 0,
+      t0: Date.now(),
+      fini: false
+    };
+
+    let sceneEl = null;
+    let cameraEl = null;
+
+    // Mise à jour du panneau HUD
+    function majPanneau(message = "") {
+      const hud = document.getElementById("hud");
+      if (!hud) return;
+
+      hud.innerHTML = `
+        <strong>TP2 - Salle XR</strong><br>
+        Score : ${jeu.score}<br>
+        Erreurs : ${jeu.erreurs}<br>
+        ${message}
+      `;
+    }
+
+    // Son simple
+    function bip(frequence = 600, duree = 100) {
+      try {
+        const AudioContext = window.AudioContext ||
+          window.webkitAudioContext;
+
+        const audio = new AudioContext();
+        const oscillateur = audio.createOscillator();
+        const gain = audio.createGain();
+
+        oscillateur.frequency.value = frequence;
+        oscillateur.connect(gain);
+        gain.connect(audio.destination);
+
+        oscillateur.start();
+        gain.gain.setValueAtTime(0.15, audio.currentTime);
+        gain.gain.exponentialRampToValueAtTime(
+          0.001,
+          audio.currentTime + duree / 1000
+        );
+
+        oscillateur.stop(audio.currentTime + duree / 1000);
+      } catch (e) {
+        console.warn("Audio non disponible");
+      }
+    }
+
+    // Vibration si disponible
+    function vibrer(duree = 50) {
+      if (navigator.vibrate) {
+        navigator.vibrate(duree);
+      }
+    }
+
+    // Téléportation sur le sol
+    AFRAME.registerComponent("teleport-sol", {
+      init: function () {
+        this.el.addEventListener("click", () => {
+          const intersection = this.el.components.raycaster
+            ?.intersections?.[0];
+
+          if (!intersection) return;
+
+          const point = intersection.point;
+          const rig = document.getElementById("rig");
+
+          rig.object3D.position.x = point.x;
+          rig.object3D.position.z = point.z;
+        });
+      }
+    });
+
+    // Composant instrument
+    AFRAME.registerComponent("instrument", {
+      schema: {
+        nom: { type: "string" },
+        zone: { type: "string" }
+      },
+
+      init: function () {
+        this.etat = "libre";
+
+        this.el.addEventListener("mouseenter", () => {
+          if (this.etat === "libre") {
+            this.setEtat("survole");
+          }
+        });
+
+        this.el.addEventListener("mouseleave", () => {
+          if (this.etat === "survole") {
+            this.setEtat("libre");
+          }
+        });
+
+        this.el.addEventListener("click", () => {
+          this.saisir();
+        });
+      },
+
+      setEtat: function (etat) {
+        this.etat = etat;
+
+        if (etat === "survole") {
+          this.el.setAttribute("scale", "1.12 1.12 1.12");
+        } else {
+          this.el.setAttribute("scale", "1 1 1");
         }
-    </style>
+      },
+
+      saisir: function () {
+        if (this.etat === "saisi") return;
+
+        // Si un autre instrument est déjà tenu, ne rien faire
+        if (jeu.main && jeu.main !== this.el) {
+          return;
+        }
+
+        if (!cameraEl) return;
+
+        jeu.main = this.el;
+        this.setEtat("saisi");
+
+        // Attacher l'instrument à la caméra
+        cameraEl.object3D.attach(this.el.object3D);
+
+        this.el.object3D.position.set(0, -0.15, -0.65);
+        this.el.object3D.rotation.set(0, 0, 0);
+
+        majPanneau("Instrument saisi : " + this.data.nom);
+        bip(750, 100);
+        vibrer(40);
+      },
+
+      deposer: function (zoneEl) {
+        if (jeu.main !== this.el) return;
+
+        const zoneId = this.data.zone;
+
+        if (zoneEl.id !== zoneId) {
+          jeu.erreurs++;
+          majPanneau("Mauvaise zone ! Réessayez.");
+          bip(200, 200);
+          vibrer(100);
+          return;
+        }
+
+        const position = new THREE.Vector3();
+        zoneEl.object3D.getWorldPosition(position);
+
+        // Détacher de la caméra et replacer dans la scène
+        sceneEl.object3D.attach(this.el.object3D);
+
+        // Convertir la position mondiale en position locale
+        sceneEl.object3D.worldToLocal(position);
+
+        this.el.object3D.position.set(
+          position.x,
+          position.y + 0.08,
+          position.z
+        );
+
+        this.el.object3D.rotation.set(0, 0, 0);
+        this.setEtat("depose");
+
+        jeu.score++;
+        jeu.main = null;
+
+        majPanneau("Bien joué ! " + this.data.nom + " déposé.");
+        bip(900, 150);
+        vibrer(60);
+      }
+    });
+
+    // Composant zone de dépôt
+    AFRAME.registerComponent("zone-depot", {
+      init: function () {
+        this.el.addEventListener("click", () => {
+          if (!jeu.main) {
+            majPanneau("Prenez d'abord un instrument.");
+            return;
+          }
+
+          const composant = jeu.main.components.instrument;
+
+          if (composant) {
+            composant.deposer(this.el);
+          }
+        });
+      }
+    });
+
+    // Initialisation de la scène
+    window.addEventListener("load", () => {
+      sceneEl = document.querySelector("a-scene");
+
+      sceneEl.addEventListener("loaded", () => {
+        cameraEl = document.getElementById("tete");
+        majPanneau("Visez un instrument et cliquez pour le saisir.");
+      });
+    });
+  </script>
 </head>
 
 <body>
 
-    <div id="hud">
-        Visez avec le point blanc, touchez l'écran pour agir.
-    </div>
+  <div id="hud">
+    <strong>TP2 - Salle XR</strong><br>
+    Score : 0<br>
+    Erreurs : 0
+  </div>
 
-    <a-scene id="scene" vr-mode-ui="enabled: false"
-             renderer="antialias: true">
+  <a-scene
+    id="scene"
+    vr-mode-ui="enabled: false"
+    renderer="antialias: true"
+  >
 
-        <!-- TEST : ciel bleu et cube rouge -->
-       
-<!-- ============ BLOC 1 : ENVIRONNEMENT ============ -->
-<a-entity id="Environnement">
+    <!-- ENVIRONNEMENT -->
+    <a-entity id="Environnement">
 
-    <!-- Ciel -->
-    <a-sky color="#9ec9ee"></a-sky>
+      <a-sky color="#ECEFF1"></a-sky>
 
-    <!-- Lumières -->
-    <a-entity light="type: ambient; intensity: 0.7"></a-entity>
-    <a-entity light="type: directional; intensity: 0.8"
-              position="1 4 2"></a-entity>
+      <a-entity
+        light="type: ambient; intensity: 0.8"
+      ></a-entity>
 
-    <!-- Sol -->
-    <a-plane id="Sol"
-             class="interactif"
-             teleport-sol
-             rotation="-90 0 0"
-             width="6"
-             height="6"
-             material="color: #c9c9c9; roughness: 0.9">
-    </a-plane>
+      <a-entity
+        light="type: directional; intensity: 0.8"
+        position="-2 4 3"
+      ></a-entity>
 
-    <!-- Murs -->
-    <a-plane position="0 1.5 -3"
-             width="6" height="3"
-             material="color: #e8eef5"></a-plane>
+      <!-- Sol -->
+      <a-plane
+        id="Sol"
+        rotation="-90 0 0"
+        width="10"
+        height="10"
+        color="#B0BEC5"
+        position="0 0 0"
+      ></a-plane>
 
-    <a-plane position="-3 1.5 0"
-             rotation="0 90 0"
-             width="6" height="3"
-             material="color: #e8eef5"></a-plane>
+      <!-- Murs -->
+      <a-box
+        position="0 1.5 -3"
+        width="8"
+        height="3"
+        depth="0.1"
+        color="#CFD8DC"
+      ></a-box>
 
-    <a-plane position="3 1.5 0"
-             rotation="0 -90 0"
-             width="6" height="3"
-             material="color: #e8eef5"></a-plane>
+      <a-box
+        position="-4 1.5 0"
+        width="0.1"
+        height="3"
+        depth="6"
+        color="#CFD8DC"
+      ></a-box>
 
-    <a-plane position="0 1.5 3"
-             rotation="0 180 0"
-             width="6" height="3"
-             material="color: #e8eef5"></a-plane>
+      <a-box
+        position="4 1.5 0"
+        width="0.1"
+        height="3"
+        depth="6"
+        color="#CFD8DC"
+      ></a-box>
 
-    <!-- Table A -->
-    <a-entity id="Table_A" position="-1.6 0 -1">
+      <!-- Table A : instruments -->
+      <a-box
+        id="Table_A"
+        position="-1.6 0.7 -1"
+        width="1.2"
+        height="0.1"
+        depth="0.8"
+        color="#795548"
+      ></a-box>
 
-        <a-box position="0 0.725 0"
-               width="1" height="0.05" depth="0.6"
-               material="color: #8d6e63; roughness: 0.8"></a-box>
+      <!-- Table B : zones de dépôt -->
+      <a-box
+        id="Table_B"
+        position="0.6 0.7 -1"
+        width="1.2"
+        height="0.1"
+        depth="0.8"
+        color="#795548"
+      ></a-box>
 
-        <a-box position="-0.45 0.35 -0.25"
-               width="0.05" height="0.7" depth="0.05"
-               color="#5d4037"></a-box>
+      <!-- Panneau -->
+      <a-entity
+        id="Panneau"
+        position="0 2.2 -2.5"
+      >
+        <a-plane
+          width="2"
+          height="0.6"
+          color="#263238"
+        ></a-plane>
 
-        <a-box position="0.45 0.35 -0.25"
-               width="0.05" height="0.7" depth="0.05"
-               color="#5d4037"></a-box>
-
-        <a-box position="-0.45 0.35 0.25"
-               width="0.05" height="0.7" depth="0.05"
-               color="#5d4037"></a-box>
-
-        <a-box position="0.45 0.35 0.25"
-               width="0.05" height="0.7" depth="0.05"
-               color="#5d4037"></a-box>
+        <a-text
+          value="MISSION : Ranger les instruments"
+          align="center"
+          color="white"
+          width="3"
+          position="0 0 0.01"
+        ></a-text>
+      </a-entity>
 
     </a-entity>
 
-    <!-- Table B -->
-    <a-entity id="Table_B" position="0.6 0 -1">
+    <!-- BLOC 2 : ZONES DE DEPOT -->
+    <a-entity id="Zones">
 
-        <a-box position="0 0.725 0"
-               width="1" height="0.05" depth="0.6"
-               material="color: #eceff1; roughness: 0.5"></a-box>
+      <a-cylinder
+        id="zone_bistouri"
+        class="interactif"
+        zone-depot
+        position="0.3 0.755 -1"
+        radius="0.1"
+        height="0.01"
+        color="#ef9a9a"
+      ></a-cylinder>
 
-        <a-box position="-0.45 0.35 -0.25"
-               width="0.05" height="0.7" depth="0.05"
-               color="#90a4ae"></a-box>
+      <a-cylinder
+        id="zone_pince"
+        class="interactif"
+        zone-depot
+        position="0.6 0.755 -1"
+        radius="0.1"
+        height="0.01"
+        color="#90caf9"
+      ></a-cylinder>
 
-        <a-box position="0.45 0.35 -0.25"
-               width="0.05" height="0.7" depth="0.05"
-               color="#90a4ae"></a-box>
+      <a-cylinder
+        id="zone_ecarteur"
+        class="interactif"
+        zone-depot
+        position="0.9 0.755 -1"
+        radius="0.1"
+        height="0.01"
+        color="#a5d6a7"
+      ></a-cylinder>
 
-        <a-box position="-0.45 0.35 0.25"
-               width="0.05" height="0.7" depth="0.05"
-               color="#90a4ae"></a-box>
+      <a-text
+        position="0.3 0.9 -1"
+        width="0.7"
+        align="center"
+        value="Bistouri"
+        color="#263238"
+      ></a-text>
 
-        <a-box position="0.45 0.35 0.25"
-               width="0.05" height="0.7" depth="0.05"
-               color="#90a4ae"></a-box>
+      <a-text
+        position="0.6 0.9 -1"
+        width="0.7"
+        align="center"
+        value="Pince"
+        color="#263238"
+      ></a-text>
+
+      <a-text
+        position="0.9 0.9 -1"
+        width="0.7"
+        align="center"
+        value="Écarteur"
+        color="#263238"
+      ></a-text>
 
     </a-entity>
 
-    <!-- Panneau de mission -->
-    <a-plane position="0 2.0 -2.95"
-             width="2.4" height="0.9"
-             material="color: #1b2a41; shader: flat">
-    </a-plane>
+    <!-- BLOC 3 : INSTRUMENTS INTERACTIFS -->
+    <a-entity id="Instruments">
 
-    <a-text id="Panneau"
-            position="0 2.0 -2.93"
-            width="2.2"
-            align="center"
-            color="#ffffff"
-            value="Salle de formation&#10;Placez chaque instrument&#10;dans sa zone.">
-    </a-text>
+      <!-- Bistouri rouge -->
+      <a-box
+        id="bistouri"
+        class="interactif"
+        instrument="nom: Bistouri; zone: zone_bistouri"
+        position="-0.9 0.82 -1"
+        width="0.22"
+        height="0.08"
+        depth="0.08"
+        material="color: #e53935; metalness: 0.3; roughness: 0.4"
+      ></a-box>
 
-    <a-text position="0 2.55 -2.93"
-            width="2.2"
-            align="center"
-            color="#ffd54f"
-            value="Prototype pédagogique - pas un dispositif médical">
-    </a-text>
+      <!-- Pince bleue -->
+      <a-cylinder
+        id="pince"
+        class="interactif"
+        instrument="nom: Pince; zone: zone_pince"
+        position="-0.6 0.84 -1"
+        rotation="0 0 90"
+        radius="0.05"
+        height="0.2"
+        material="color: #1e88e5; metalness: 0.3; roughness: 0.4"
+      ></a-cylinder>
 
-</a-entity>
+      <!-- Écarteur vert -->
+      <a-cone
+        id="ecarteur"
+        class="interactif"
+        instrument="nom: Écarteur; zone: zone_ecarteur"
+        position="-0.3 0.83 -1"
+        radius-bottom="0.07"
+        radius-top="0"
+        height="0.15"
+        material="color: #43a047; metalness: 0.3; roughness: 0.4"
+      ></a-cone>
 
-<!-- ============ BLOC 4 : XR ORIGIN ============ -->
+    </a-entity>
 
-<a-entity id="rig"
-          position="0 0 0.8"
-          wasd-controls="acceleration: 15">
+    <!-- BLOC 4 : ORIGINE XR, CAMERA ET CURSEUR -->
+    <a-entity
+      id="rig"
+      position="0 0 0.8"
+      wasd-controls="acceleration: 15"
+    >
 
-    <a-entity id="tete"
-              camera
-              position="0 1.6 0"
-              look-controls>
+      <!-- Camera / tête -->
+      <a-entity
+        id="tete"
+        camera
+        position="0 1.6 0"
+        look-controls
+      >
 
-        <a-entity id="curseur"
-                  cursor="fuse: false"
-                  raycaster="objects: .interactif; far: 8"
-                  position="0 0 -1"
-                  geometry="primitive: ring; radiusInner: 0.012; radiusOuter: 0.02"
-                  material="color: #ffffff; shader: flat; opacity: 0.9">
+        <!-- Curseur central -->
+        <a-entity
+          id="curseur"
+          cursor="rayOrigin: entity; fuse: false"
+          raycaster="objects: .interactif; far: 8"
+          position="0 0 -1"
+        >
+          <a-ring
+            color="white"
+            radius-inner="0.012"
+            radius-outer="0.02"
+          ></a-ring>
         </a-entity>
 
+      </a-entity>
     </a-entity>
-</a-entity>
 
-
-    </a-scene>
-
-    <script>
-        /* EMPLACEMENT DU SCRIPT */
-    </script>
+  </a-scene>
 
 </body>
 </html>
