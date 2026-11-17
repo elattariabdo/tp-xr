@@ -1,33 +1,38 @@
 
 const THREE = AFRAME.THREE;
 
-/* ---------- Outils : son et vibration ---------- */
+/* =====================================================
+   1. OUTILS : SON ET VIBRATION
+===================================================== */
 
 let ctxAudio = null;
 
 function bip(freq = 660, duree = 0.12) {
     try {
-        ctxAudio = ctxAudio || new (
-            window.AudioContext || window.webkitAudioContext
-        )();
+        if (!ctxAudio) {
+            ctxAudio = new (
+                window.AudioContext || window.webkitAudioContext
+            )();
+        }
 
         if (ctxAudio.state === 'suspended') {
             ctxAudio.resume();
         }
 
-        const o = ctxAudio.createOscillator();
-        const g = ctxAudio.createGain();
+        const oscillateur = ctxAudio.createOscillator();
+        const gain = ctxAudio.createGain();
 
-        o.frequency.value = freq;
-        g.gain.value = 0.15;
+        oscillateur.frequency.value = freq;
+        gain.gain.value = 0.15;
 
-        o.connect(g);
-        g.connect(ctxAudio.destination);
+        oscillateur.connect(gain);
+        gain.connect(ctxAudio.destination);
 
-        o.start();
-        o.stop(ctxAudio.currentTime + duree);
+        oscillateur.start();
+        oscillateur.stop(ctxAudio.currentTime + duree);
+
     } catch (e) {
-        console.warn('Son indisponible');
+        console.warn('Son indisponible :', e);
     }
 }
 
@@ -38,7 +43,9 @@ function vibrer(motif) {
 }
 
 
-/* ---------- État global du jeu ---------- */
+/* =====================================================
+   2. ÉTAT GLOBAL DU JEU
+===================================================== */
 
 const jeu = {
     main: null,
@@ -52,28 +59,40 @@ const hud = document.getElementById('hud');
 const panneau = document.getElementById('Panneau');
 const sceneEl = document.getElementById('scene');
 
+
+/* =====================================================
+   3. MISE À JOUR DU PANNEAU
+===================================================== */
+
 function majPanneau(msg) {
 
-    panneau.setAttribute(
-        'text',
-        'value',
-        'Score : ' + jeu.score +
-        ' / 3 Erreurs : ' + jeu.erreurs +
-        '\n' + msg
-    );
+    if (panneau) {
+        panneau.setAttribute(
+            'text',
+            'value',
+            'Score : ' + jeu.score +
+            ' / 3 Erreurs : ' + jeu.erreurs +
+            '\n' + msg
+        );
+    }
 
-    hud.textContent = (
-        jeu.main
-            ? 'En main : ' +
-              jeu.main.components.instrument.data.nom +
-              ' - touchez une zone'
-            : 'Touchez un instrument pour le saisir'
-    ) + ' | Score : ' + jeu.score +
+    if (hud) {
+        hud.textContent = (
+            jeu.main
+                ? 'En main : ' +
+                  jeu.main.components.instrument.data.nom +
+                  ' - touchez une zone'
+                : 'Touchez un instrument pour le saisir'
+        ) +
+        ' | Score : ' + jeu.score +
         '/3 Erreurs : ' + jeu.erreurs;
+    }
 }
 
 
-/* ---------- Téléportation ---------- */
+/* =====================================================
+   4. COMPOSANT : TÉLÉPORTATION
+===================================================== */
 
 AFRAME.registerComponent('teleport-sol', {
 
@@ -83,13 +102,13 @@ AFRAME.registerComponent('teleport-sol', {
 
             if (!e.detail.intersection) return;
 
-            const p = e.detail.intersection.point;
+            const point = e.detail.intersection.point;
             const rig = document.getElementById('rig');
 
             if (!rig) return;
 
-            const x = Math.max(-2.4, Math.min(2.4, p.x));
-            const z = Math.max(-2.4, Math.min(2.4, p.z));
+            const x = Math.max(-2.4, Math.min(2.4, point.x));
+            const z = Math.max(-2.4, Math.min(2.4, point.z));
 
             rig.object3D.position.set(x, 0, z);
 
@@ -99,7 +118,9 @@ AFRAME.registerComponent('teleport-sol', {
 });
 
 
-/* ---------- Instrument ---------- */
+/* =====================================================
+   5. COMPOSANT : INSTRUMENT
+===================================================== */
 
 AFRAME.registerComponent('instrument', {
 
@@ -112,33 +133,44 @@ AFRAME.registerComponent('instrument', {
 
         this.etat = 'libre';
 
+        // Position et rotation initiales
         this.posInit = this.el.object3D.position.clone();
         this.rotInit = this.el.object3D.rotation.clone();
 
+        // Survol de l'instrument
         this.el.addEventListener('mouseenter', () => {
+
             if (this.etat === 'libre') {
                 this.setEtat('survole');
             }
         });
 
+        // Fin du survol
         this.el.addEventListener('mouseleave', () => {
+
             if (this.etat === 'survole') {
                 this.setEtat('libre');
             }
         });
 
+        // Clic sur l'instrument
         this.el.addEventListener('click', () => {
 
             if (jeu.fini || this.etat === 'depose') return;
 
             if (this.etat === 'saisi') {
+
                 this.relacher();
+
             } else if (!jeu.main) {
+
                 this.saisir();
             }
         });
     },
 
+
+    // Changer l'état visuel
     setEtat(e) {
 
         this.etat = e;
@@ -156,16 +188,19 @@ AFRAME.registerComponent('instrument', {
         );
     },
 
-    saisir() {
 
-        if (!jeu.t0) {
-            jeu.t0 = performance.now();
-        }
+    // Saisir l'instrument
+    saisir() {
 
         const tete = document.getElementById('tete');
 
         if (!tete) return;
 
+        if (!jeu.t0) {
+            jeu.t0 = performance.now();
+        }
+
+        // Attacher l'instrument à la tête
         tete.object3D.attach(this.el.object3D);
 
         this.el.object3D.position.set(0.22, -0.22, -0.7);
@@ -183,10 +218,14 @@ AFRAME.registerComponent('instrument', {
         majPanneau('Vous tenez : ' + this.data.nom);
     },
 
+
+    // Relâcher l'instrument
     relacher() {
 
+        // Retourner à la scène
         sceneEl.object3D.attach(this.el.object3D);
 
+        // Restaurer la position initiale
         this.el.object3D.position.copy(this.posInit);
         this.el.object3D.rotation.copy(this.rotInit);
 
@@ -201,21 +240,26 @@ AFRAME.registerComponent('instrument', {
         majPanneau('Instrument reposé.');
     },
 
+
+    // Déposer l'instrument dans une zone
     deposer(zoneEl) {
 
-        const p = new THREE.Vector3();
+        const position = new THREE.Vector3();
 
-        zoneEl.object3D.getWorldPosition(p);
+        // Récupérer la position mondiale de la zone
+        zoneEl.object3D.getWorldPosition(position);
 
+        // Attacher à la scène en conservant les coordonnées mondiales
         sceneEl.object3D.attach(this.el.object3D);
 
-        // Conversion des coordonnées monde en coordonnées locales
-        sceneEl.object3D.worldToLocal(p);
+        // Convertir les coordonnées mondiales en locales
+        sceneEl.object3D.worldToLocal(position);
 
+        // Positionner l'instrument
         this.el.object3D.position.set(
-            p.x,
-            p.y + 0.06,
-            p.z
+            position.x,
+            position.y + 0.06,
+            position.z
         );
 
         this.el.object3D.rotation.set(0, 0, 0);
@@ -229,14 +273,19 @@ AFRAME.registerComponent('instrument', {
 });
 
 
-/* ---------- Zone de dépôt ---------- */
+/* =====================================================
+   6. COMPOSANT : ZONE DE DÉPÔT
+===================================================== */
 
 AFRAME.registerComponent('zone-depot', {
 
     init() {
 
-        this.couleurInitiale =
-            this.el.getAttribute('material').color || '#ffffff';
+        const material = this.el.getAttribute('material');
+
+        this.couleurInitiale = material
+            ? material.color || '#ffffff'
+            : '#ffffff';
 
         this.el.addEventListener('click', () => {
 
@@ -246,9 +295,11 @@ AFRAME.registerComponent('zone-depot', {
 
             if (!inst) return;
 
+
+            // Vérifier si la zone est correcte
             if (inst.data.zone === this.el.id) {
 
-                // Bonne zone
+                // BONNE ZONE
                 inst.deposer(this.el);
 
                 jeu.score++;
@@ -262,6 +313,8 @@ AFRAME.registerComponent('zone-depot', {
                     '#2e7d32'
                 );
 
+
+                // Vérifier la fin du jeu
                 if (jeu.score === 3) {
 
                     jeu.fini = true;
@@ -289,7 +342,7 @@ AFRAME.registerComponent('zone-depot', {
 
             } else {
 
-                // Mauvaise zone
+                // MAUVAISE ZONE
                 jeu.erreurs++;
 
                 bip(180, 0.3);
@@ -301,6 +354,7 @@ AFRAME.registerComponent('zone-depot', {
                     '#d32f2f'
                 );
 
+                // Restaurer la couleur initiale
                 setTimeout(() => {
 
                     this.el.setAttribute(
@@ -311,6 +365,7 @@ AFRAME.registerComponent('zone-depot', {
 
                 }, 500);
 
+                // Relâcher l'instrument
                 inst.relacher();
 
                 majPanneau('Mauvaise zone. Réessayez.');
@@ -320,10 +375,12 @@ AFRAME.registerComponent('zone-depot', {
 });
 
 
-/* ---------- Outils de performance ---------- */
+/* =====================================================
+   7. OUTILS DE MESURE : PERFORMANCE
+===================================================== */
 
-// ?stats : afficher les FPS
-// ?stress=200 : ajouter 200 sphères
+// Ajouter ?stats dans l'URL pour afficher les FPS
+// Ajouter ?stress=200 pour ajouter 200 sphères
 
 const params = new URLSearchParams(location.search);
 
@@ -331,16 +388,24 @@ if (params.has('stats')) {
     sceneEl.setAttribute('stats', '');
 }
 
+
+// Nombre de sphères supplémentaires
 const nbStress = Math.max(
     0,
-    Math.min(2000, parseInt(params.get('stress') || '0', 10) || 0)
+    Math.min(
+        2000,
+        parseInt(params.get('stress') || '0', 10) || 0
+    )
 );
 
+
+// Création des sphères
 for (let i = 0; i < nbStress; i++) {
 
     const s = document.createElement('a-sphere');
 
     s.setAttribute('radius', 0.08);
+
     s.setAttribute('segments-width', 32);
     s.setAttribute('segments-height', 32);
 
@@ -359,10 +424,26 @@ for (let i = 0; i < nbStress; i++) {
 }
 
 
-/* ---------- Initialisation ---------- */
+/* =====================================================
+   8. INITIALISATION DU JEU
+===================================================== */
 
-sceneEl.addEventListener('loaded', () => {
+if (sceneEl) {
 
-    majPanneau('Saisissez un instrument.');
+    if (sceneEl.hasLoaded) {
 
-});
+        majPanneau('Saisissez un instrument.');
+
+    } else {
+
+        sceneEl.addEventListener('loaded', () => {
+
+            majPanneau('Saisissez un instrument.');
+
+        }, { once: true });
+    }
+
+} else {
+
+    console.error('Erreur : scène A-Frame introuvable !');
+}
