@@ -1,449 +1,183 @@
 
-const THREE = AFRAME.THREE;
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
 
-/* =====================================================
-   1. OUTILS : SON ET VIBRATION
-===================================================== */
+    <title>TP2 - Salle XR interactive</title>
 
-let ctxAudio = null;
+    <!-- Version figée : A-Frame 1.7.1 -->
+    <script src="https://cdn.jsdelivr.net/npm/aframe@1.7.1/dist/aframe-v1.7.1.min.js"></script>
 
-function bip(freq = 660, duree = 0.12) {
-    try {
-        if (!ctxAudio) {
-            ctxAudio = new (
-                window.AudioContext || window.webkitAudioContext
-            )();
+    <style>
+        #hud {
+            position: fixed;
+            bottom: 8px;
+            left: 8px;
+            right: 8px;
+            z-index: 10;
+            pointer-events: none;
+            font: 600 16px system-ui, sans-serif;
+            color: #fff;
+            text-shadow: 0 0 4px #000, 0 0 4px #000;
         }
-
-        if (ctxAudio.state === 'suspended') {
-            ctxAudio.resume();
-        }
-
-        const oscillateur = ctxAudio.createOscillator();
-        const gain = ctxAudio.createGain();
-
-        oscillateur.frequency.value = freq;
-        gain.gain.value = 0.15;
-
-        oscillateur.connect(gain);
-        gain.connect(ctxAudio.destination);
-
-        oscillateur.start();
-        oscillateur.stop(ctxAudio.currentTime + duree);
-
-    } catch (e) {
-        console.warn('Son indisponible :', e);
-    }
-}
-
-function vibrer(motif) {
-    if (navigator.vibrate) {
-        navigator.vibrate(motif);
-    }
-}
-
-
-/* =====================================================
-   2. ÉTAT GLOBAL DU JEU
-===================================================== */
-
-const jeu = {
-    main: null,
-    score: 0,
-    erreurs: 0,
-    t0: null,
-    fini: false
-};
-
-const hud = document.getElementById('hud');
-const panneau = document.getElementById('Panneau');
-const sceneEl = document.getElementById('scene');
-
-
-/* =====================================================
-   3. MISE À JOUR DU PANNEAU
-===================================================== */
-
-function majPanneau(msg) {
-
-    if (panneau) {
-        panneau.setAttribute(
-            'text',
-            'value',
-            'Score : ' + jeu.score +
-            ' / 3 Erreurs : ' + jeu.erreurs +
-            '\n' + msg
-        );
-    }
-
-    if (hud) {
-        hud.textContent = (
-            jeu.main
-                ? 'En main : ' +
-                  jeu.main.components.instrument.data.nom +
-                  ' - touchez une zone'
-                : 'Touchez un instrument pour le saisir'
-        ) +
-        ' | Score : ' + jeu.score +
-        '/3 Erreurs : ' + jeu.erreurs;
-    }
-}
-
-
-/* =====================================================
-   4. COMPOSANT : TÉLÉPORTATION
-===================================================== */
-
-AFRAME.registerComponent('teleport-sol', {
-
-    init() {
-
-        this.el.addEventListener('click', e => {
-
-            if (!e.detail.intersection) return;
-
-            const point = e.detail.intersection.point;
-            const rig = document.getElementById('rig');
-
-            if (!rig) return;
-
-            const x = Math.max(-2.4, Math.min(2.4, point.x));
-            const z = Math.max(-2.4, Math.min(2.4, point.z));
-
-            rig.object3D.position.set(x, 0, z);
-
-            bip(440, 0.08);
-        });
-    }
-});
-
-
-/* =====================================================
-   5. COMPOSANT : INSTRUMENT
-===================================================== */
-
-AFRAME.registerComponent('instrument', {
-
-    schema: {
-        nom: { type: 'string' },
-        zone: { type: 'string' }
-    },
-
-    init() {
-
-        this.etat = 'libre';
-
-        // Position et rotation initiales
-        this.posInit = this.el.object3D.position.clone();
-        this.rotInit = this.el.object3D.rotation.clone();
-
-        // Survol de l'instrument
-        this.el.addEventListener('mouseenter', () => {
-
-            if (this.etat === 'libre') {
-                this.setEtat('survole');
-            }
-        });
-
-        // Fin du survol
-        this.el.addEventListener('mouseleave', () => {
-
-            if (this.etat === 'survole') {
-                this.setEtat('libre');
-            }
-        });
-
-        // Clic sur l'instrument
-        this.el.addEventListener('click', () => {
-
-            if (jeu.fini || this.etat === 'depose') return;
-
-            if (this.etat === 'saisi') {
-
-                this.relacher();
-
-            } else if (!jeu.main) {
-
-                this.saisir();
-            }
-        });
-    },
-
-
-    // Changer l'état visuel
-    setEtat(e) {
-
-        this.etat = e;
-
-        this.el.setAttribute(
-            'material',
-            'emissive',
-            e === 'survole' ? '#ffee58' : '#000000'
-        );
-
-        this.el.setAttribute(
-            'material',
-            'emissiveIntensity',
-            e === 'survole' ? 0.6 : 0
-        );
-    },
-
-
-    // Saisir l'instrument
-    saisir() {
-
-        const tete = document.getElementById('tete');
-
-        if (!tete) return;
-
-        if (!jeu.t0) {
-            jeu.t0 = performance.now();
-        }
-
-        // Attacher l'instrument à la tête
-        tete.object3D.attach(this.el.object3D);
-
-        this.el.object3D.position.set(0.22, -0.22, -0.7);
-        this.el.object3D.rotation.set(0, 0, 0);
-
-        this.el.classList.remove('interactif');
-
-        jeu.main = this.el;
-
-        this.setEtat('saisi');
-
-        bip(520);
-        vibrer(30);
-
-        majPanneau('Vous tenez : ' + this.data.nom);
-    },
-
-
-    // Relâcher l'instrument
-    relacher() {
-
-        // Retourner à la scène
-        sceneEl.object3D.attach(this.el.object3D);
-
-        // Restaurer la position initiale
-        this.el.object3D.position.copy(this.posInit);
-        this.el.object3D.rotation.copy(this.rotInit);
-
-        this.el.classList.add('interactif');
-
-        jeu.main = null;
-
-        this.setEtat('libre');
-
-        bip(330, 0.1);
-
-        majPanneau('Instrument reposé.');
-    },
-
-
-    // Déposer l'instrument dans une zone
-    deposer(zoneEl) {
-
-        const position = new THREE.Vector3();
-
-        // Récupérer la position mondiale de la zone
-        zoneEl.object3D.getWorldPosition(position);
-
-        // Attacher à la scène en conservant les coordonnées mondiales
-        sceneEl.object3D.attach(this.el.object3D);
-
-        // Convertir les coordonnées mondiales en locales
-        sceneEl.object3D.worldToLocal(position);
-
-        // Positionner l'instrument
-        this.el.object3D.position.set(
-            position.x,
-            position.y + 0.06,
-            position.z
-        );
-
-        this.el.object3D.rotation.set(0, 0, 0);
-
-        this.el.classList.remove('interactif');
-
-        jeu.main = null;
-
-        this.setEtat('depose');
-    }
-});
-
-
-/* =====================================================
-   6. COMPOSANT : ZONE DE DÉPÔT
-===================================================== */
-
-AFRAME.registerComponent('zone-depot', {
-
-    init() {
-
-        const material = this.el.getAttribute('material');
-
-        this.couleurInitiale = material
-            ? material.color || '#ffffff'
-            : '#ffffff';
-
-        this.el.addEventListener('click', () => {
-
-            if (!jeu.main || jeu.fini) return;
-
-            const inst = jeu.main.components.instrument;
-
-            if (!inst) return;
-
-
-            // Vérifier si la zone est correcte
-            if (inst.data.zone === this.el.id) {
-
-                // BONNE ZONE
-                inst.deposer(this.el);
-
-                jeu.score++;
-
-                bip(880, 0.2);
-                vibrer([40, 60, 40]);
-
-                this.el.setAttribute(
-                    'material',
-                    'color',
-                    '#2e7d32'
-                );
-
-
-                // Vérifier la fin du jeu
-                if (jeu.score === 3) {
-
-                    jeu.fini = true;
-
-                    const secondes = (
-                        (performance.now() - jeu.t0) / 1000
-                    ).toFixed(0);
-
-                    majPanneau(
-                        'TERMINÉ en ' + secondes + ' secondes !'
-                    );
-
-                    console.log(
-                        'RESULTAT',
-                        JSON.stringify({
-                            secondes: Number(secondes),
-                            erreurs: jeu.erreurs
-                        })
-                    );
-
-                } else {
-
-                    majPanneau('Bien joué !');
-                }
-
-            } else {
-
-                // MAUVAISE ZONE
-                jeu.erreurs++;
-
-                bip(180, 0.3);
-                vibrer([100, 50, 100]);
-
-                this.el.setAttribute(
-                    'material',
-                    'color',
-                    '#d32f2f'
-                );
-
-                // Restaurer la couleur initiale
-                setTimeout(() => {
-
-                    this.el.setAttribute(
-                        'material',
-                        'color',
-                        this.couleurInitiale
-                    );
-
-                }, 500);
-
-                // Relâcher l'instrument
-                inst.relacher();
-
-                majPanneau('Mauvaise zone. Réessayez.');
-            }
-        });
-    }
-});
-
-
-/* =====================================================
-   7. OUTILS DE MESURE : PERFORMANCE
-===================================================== */
-
-// Ajouter ?stats dans l'URL pour afficher les FPS
-// Ajouter ?stress=200 pour ajouter 200 sphères
-
-const params = new URLSearchParams(location.search);
-
-if (params.has('stats')) {
-    sceneEl.setAttribute('stats', '');
-}
-
-
-// Nombre de sphères supplémentaires
-const nbStress = Math.max(
-    0,
-    Math.min(
-        2000,
-        parseInt(params.get('stress') || '0', 10) || 0
-    )
-);
-
-
-// Création des sphères
-for (let i = 0; i < nbStress; i++) {
-
-    const s = document.createElement('a-sphere');
-
-    s.setAttribute('radius', 0.08);
-
-    s.setAttribute('segments-width', 32);
-    s.setAttribute('segments-height', 32);
-
-    s.setAttribute('position', {
-        x: (Math.random() - 0.5) * 5,
-        y: 0.3 + Math.random() * 2.5,
-        z: (Math.random() - 0.5) * 5
-    });
-
-    s.setAttribute(
-        'material',
-        'color: #9575cd; metalness: 0.5; roughness: 0.3'
-    );
-
-    sceneEl.appendChild(s);
-}
-
-
-/* =====================================================
-   8. INITIALISATION DU JEU
-===================================================== */
-
-if (sceneEl) {
-
-    if (sceneEl.hasLoaded) {
-
-        majPanneau('Saisissez un instrument.');
-
-    } else {
-
-        sceneEl.addEventListener('loaded', () => {
-
-            majPanneau('Saisissez un instrument.');
-
-        }, { once: true });
-    }
-
-} else {
-
-    console.error('Erreur : scène A-Frame introuvable !');
-}
+    </style>
+</head>
+
+<body>
+
+    <div id="hud">
+        Visez avec le point blanc, touchez l'écran pour agir.
+    </div>
+
+    <a-scene id="scene" vr-mode-ui="enabled: false"
+             renderer="antialias: true">
+
+        <!-- TEST : ciel bleu et cube rouge -->
+       
+<!-- ============ BLOC 1 : ENVIRONNEMENT ============ -->
+<a-entity id="Environnement">
+
+    <!-- Ciel -->
+    <a-sky color="#9ec9ee"></a-sky>
+
+    <!-- Lumières -->
+    <a-entity light="type: ambient; intensity: 0.7"></a-entity>
+    <a-entity light="type: directional; intensity: 0.8"
+              position="1 4 2"></a-entity>
+
+    <!-- Sol -->
+    <a-plane id="Sol"
+             class="interactif"
+             teleport-sol
+             rotation="-90 0 0"
+             width="6"
+             height="6"
+             material="color: #c9c9c9; roughness: 0.9">
+    </a-plane>
+
+    <!-- Murs -->
+    <a-plane position="0 1.5 -3"
+             width="6" height="3"
+             material="color: #e8eef5"></a-plane>
+
+    <a-plane position="-3 1.5 0"
+             rotation="0 90 0"
+             width="6" height="3"
+             material="color: #e8eef5"></a-plane>
+
+    <a-plane position="3 1.5 0"
+             rotation="0 -90 0"
+             width="6" height="3"
+             material="color: #e8eef5"></a-plane>
+
+    <a-plane position="0 1.5 3"
+             rotation="0 180 0"
+             width="6" height="3"
+             material="color: #e8eef5"></a-plane>
+
+    <!-- Table A -->
+    <a-entity id="Table_A" position="-1.6 0 -1">
+
+        <a-box position="0 0.725 0"
+               width="1" height="0.05" depth="0.6"
+               material="color: #8d6e63; roughness: 0.8"></a-box>
+
+        <a-box position="-0.45 0.35 -0.25"
+               width="0.05" height="0.7" depth="0.05"
+               color="#5d4037"></a-box>
+
+        <a-box position="0.45 0.35 -0.25"
+               width="0.05" height="0.7" depth="0.05"
+               color="#5d4037"></a-box>
+
+        <a-box position="-0.45 0.35 0.25"
+               width="0.05" height="0.7" depth="0.05"
+               color="#5d4037"></a-box>
+
+        <a-box position="0.45 0.35 0.25"
+               width="0.05" height="0.7" depth="0.05"
+               color="#5d4037"></a-box>
+
+    </a-entity>
+
+    <!-- Table B -->
+    <a-entity id="Table_B" position="0.6 0 -1">
+
+        <a-box position="0 0.725 0"
+               width="1" height="0.05" depth="0.6"
+               material="color: #eceff1; roughness: 0.5"></a-box>
+
+        <a-box position="-0.45 0.35 -0.25"
+               width="0.05" height="0.7" depth="0.05"
+               color="#90a4ae"></a-box>
+
+        <a-box position="0.45 0.35 -0.25"
+               width="0.05" height="0.7" depth="0.05"
+               color="#90a4ae"></a-box>
+
+        <a-box position="-0.45 0.35 0.25"
+               width="0.05" height="0.7" depth="0.05"
+               color="#90a4ae"></a-box>
+
+        <a-box position="0.45 0.35 0.25"
+               width="0.05" height="0.7" depth="0.05"
+               color="#90a4ae"></a-box>
+
+    </a-entity>
+
+    <!-- Panneau de mission -->
+    <a-plane position="0 2.0 -2.95"
+             width="2.4" height="0.9"
+             material="color: #1b2a41; shader: flat">
+    </a-plane>
+
+    <a-text id="Panneau"
+            position="0 2.0 -2.93"
+            width="2.2"
+            align="center"
+            color="#ffffff"
+            value="Salle de formation&#10;Placez chaque instrument&#10;dans sa zone.">
+    </a-text>
+
+    <a-text position="0 2.55 -2.93"
+            width="2.2"
+            align="center"
+            color="#ffd54f"
+            value="Prototype pédagogique - pas un dispositif médical">
+    </a-text>
+
+</a-entity>
+
+<!-- ============ BLOC 4 : XR ORIGIN ============ -->
+
+<a-entity id="rig"
+          position="0 0 0.8"
+          wasd-controls="acceleration: 15">
+
+    <a-entity id="tete"
+              camera
+              position="0 1.6 0"
+              look-controls>
+
+        <a-entity id="curseur"
+                  cursor="fuse: false"
+                  raycaster="objects: .interactif; far: 8"
+                  position="0 0 -1"
+                  geometry="primitive: ring; radiusInner: 0.012; radiusOuter: 0.02"
+                  material="color: #ffffff; shader: flat; opacity: 0.9">
+        </a-entity>
+
+    </a-entity>
+</a-entity>
+
+
+    </a-scene>
+
+    <script>
+        /* EMPLACEMENT DU SCRIPT */
+    </script>
+
+</body>
+</html>
