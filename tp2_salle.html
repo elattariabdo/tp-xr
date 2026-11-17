@@ -1,13 +1,19 @@
 
 const THREE = AFRAME.THREE;
 
-/* ---------- Petits outils : son et vibration ---------- */
+/* ---------- Outils : son et vibration ---------- */
 
 let ctxAudio = null;
 
 function bip(freq = 660, duree = 0.12) {
     try {
-        ctxAudio = ctxAudio || new (window.AudioContext || window.webkitAudioContext)();
+        ctxAudio = ctxAudio || new (
+            window.AudioContext || window.webkitAudioContext
+        )();
+
+        if (ctxAudio.state === 'suspended') {
+            ctxAudio.resume();
+        }
 
         const o = ctxAudio.createOscillator();
         const g = ctxAudio.createGain();
@@ -20,14 +26,15 @@ function bip(freq = 660, duree = 0.12) {
 
         o.start();
         o.stop(ctxAudio.currentTime + duree);
-
     } catch (e) {
-        // Pas de son : on continue
+        console.warn('Son indisponible');
     }
 }
 
 function vibrer(motif) {
-    if (navigator.vibrate) navigator.vibrate(motif);
+    if (navigator.vibrate) {
+        navigator.vibrate(motif);
+    }
 }
 
 
@@ -42,24 +49,31 @@ const jeu = {
 };
 
 const hud = document.getElementById('hud');
+const panneau = document.getElementById('Panneau');
+const sceneEl = document.getElementById('scene');
 
 function majPanneau(msg) {
 
-    document.getElementById('Panneau').setAttribute(
+    panneau.setAttribute(
         'text',
         'value',
-        'Score : ' + jeu.score + ' / 3 Erreurs : ' + jeu.erreurs + '\n' + msg
+        'Score : ' + jeu.score +
+        ' / 3 Erreurs : ' + jeu.erreurs +
+        '\n' + msg
     );
 
     hud.textContent = (
         jeu.main
-            ? 'En main : ' + jeu.main.components.instrument.data.nom + ' - touchez sa zone'
+            ? 'En main : ' +
+              jeu.main.components.instrument.data.nom +
+              ' - touchez une zone'
             : 'Touchez un instrument pour le saisir'
-    ) + ' | Score ' + jeu.score + '/3 Erreurs ' + jeu.erreurs;
+    ) + ' | Score : ' + jeu.score +
+        '/3 Erreurs : ' + jeu.erreurs;
 }
 
 
-/* ---------- Composant : téléportation ---------- */
+/* ---------- Téléportation ---------- */
 
 AFRAME.registerComponent('teleport-sol', {
 
@@ -72,6 +86,8 @@ AFRAME.registerComponent('teleport-sol', {
             const p = e.detail.intersection.point;
             const rig = document.getElementById('rig');
 
+            if (!rig) return;
+
             const x = Math.max(-2.4, Math.min(2.4, p.x));
             const z = Math.max(-2.4, Math.min(2.4, p.z));
 
@@ -83,9 +99,7 @@ AFRAME.registerComponent('teleport-sol', {
 });
 
 
-/* ---------- Composant : instrument ---------- */
-
-/* États : libre -> survole -> saisi -> (libre | depose) */
+/* ---------- Instrument ---------- */
 
 AFRAME.registerComponent('instrument', {
 
@@ -102,21 +116,24 @@ AFRAME.registerComponent('instrument', {
         this.rotInit = this.el.object3D.rotation.clone();
 
         this.el.addEventListener('mouseenter', () => {
-            if (this.etat === 'libre') this.setEtat('survole');
+            if (this.etat === 'libre') {
+                this.setEtat('survole');
+            }
         });
 
         this.el.addEventListener('mouseleave', () => {
-            if (this.etat === 'survole') this.setEtat('libre');
+            if (this.etat === 'survole') {
+                this.setEtat('libre');
+            }
         });
 
         this.el.addEventListener('click', () => {
 
-            if (this.etat === 'depose') return;
+            if (jeu.fini || this.etat === 'depose') return;
 
             if (this.etat === 'saisi') {
                 this.relacher();
-            }
-            else if (!jeu.main) {
+            } else if (!jeu.main) {
                 this.saisir();
             }
         });
@@ -141,9 +158,13 @@ AFRAME.registerComponent('instrument', {
 
     saisir() {
 
-        if (!jeu.t0) jeu.t0 = performance.now();
+        if (!jeu.t0) {
+            jeu.t0 = performance.now();
+        }
 
         const tete = document.getElementById('tete');
+
+        if (!tete) return;
 
         tete.object3D.attach(this.el.object3D);
 
@@ -164,7 +185,7 @@ AFRAME.registerComponent('instrument', {
 
     relacher() {
 
-        document.getElementById('scene').object3D.attach(this.el.object3D);
+        sceneEl.object3D.attach(this.el.object3D);
 
         this.el.object3D.position.copy(this.posInit);
         this.el.object3D.rotation.copy(this.rotInit);
@@ -186,10 +207,20 @@ AFRAME.registerComponent('instrument', {
 
         zoneEl.object3D.getWorldPosition(p);
 
-        document.getElementById('scene').object3D.attach(this.el.object3D);
+        sceneEl.object3D.attach(this.el.object3D);
 
-        this.el.object3D.position.set(p.x, p.y + 0.06, p.z);
+        // Conversion des coordonnées monde en coordonnées locales
+        sceneEl.object3D.worldToLocal(p);
+
+        this.el.object3D.position.set(
+            p.x,
+            p.y + 0.06,
+            p.z
+        );
+
         this.el.object3D.rotation.set(0, 0, 0);
+
+        this.el.classList.remove('interactif');
 
         jeu.main = null;
 
@@ -198,17 +229,22 @@ AFRAME.registerComponent('instrument', {
 });
 
 
-/* ---------- Composant : zone de dépôt ---------- */
+/* ---------- Zone de dépôt ---------- */
 
 AFRAME.registerComponent('zone-depot', {
 
     init() {
+
+        this.couleurInitiale =
+            this.el.getAttribute('material').color || '#ffffff';
 
         this.el.addEventListener('click', () => {
 
             if (!jeu.main || jeu.fini) return;
 
             const inst = jeu.main.components.instrument;
+
+            if (!inst) return;
 
             if (inst.data.zone === this.el.id) {
 
@@ -220,20 +256,28 @@ AFRAME.registerComponent('zone-depot', {
                 bip(880, 0.2);
                 vibrer([40, 60, 40]);
 
-                this.el.setAttribute('material', 'color', '#2e7d32');
+                this.el.setAttribute(
+                    'material',
+                    'color',
+                    '#2e7d32'
+                );
 
                 if (jeu.score === 3) {
 
                     jeu.fini = true;
 
-                    const s = ((performance.now() - jeu.t0) / 1000).toFixed(0);
+                    const secondes = (
+                        (performance.now() - jeu.t0) / 1000
+                    ).toFixed(0);
 
-                    majPanneau('TERMINÉ en ' + s + ' s');
+                    majPanneau(
+                        'TERMINÉ en ' + secondes + ' secondes !'
+                    );
 
                     console.log(
                         'RESULTAT',
                         JSON.stringify({
-                            secondes: +s,
+                            secondes: Number(secondes),
                             erreurs: jeu.erreurs
                         })
                     );
@@ -251,12 +295,20 @@ AFRAME.registerComponent('zone-depot', {
                 bip(180, 0.3);
                 vibrer([100, 50, 100]);
 
-                const ancienne = this.el.getAttribute('material').color;
-
-                this.el.setAttribute('material', 'color', '#d32f2f');
+                this.el.setAttribute(
+                    'material',
+                    'color',
+                    '#d32f2f'
+                );
 
                 setTimeout(() => {
-                    this.el.setAttribute('material', 'color', ancienne);
+
+                    this.el.setAttribute(
+                        'material',
+                        'color',
+                        this.couleurInitiale
+                    );
+
                 }, 500);
 
                 inst.relacher();
@@ -268,20 +320,21 @@ AFRAME.registerComponent('zone-depot', {
 });
 
 
-/* ---------- Outils de mesure : performance ---------- */
+/* ---------- Outils de performance ---------- */
 
-// Ajouter ?stats à l'adresse pour afficher les FPS
-// Ajouter ?stress=200 pour ajouter 200 sphères
+// ?stats : afficher les FPS
+// ?stress=200 : ajouter 200 sphères
 
 const params = new URLSearchParams(location.search);
-
-const sceneEl = document.getElementById('scene');
 
 if (params.has('stats')) {
     sceneEl.setAttribute('stats', '');
 }
 
-const nbStress = parseInt(params.get('stress') || '0', 10);
+const nbStress = Math.max(
+    0,
+    Math.min(2000, parseInt(params.get('stress') || '0', 10) || 0)
+);
 
 for (let i = 0; i < nbStress; i++) {
 
@@ -309,5 +362,7 @@ for (let i = 0; i < nbStress; i++) {
 /* ---------- Initialisation ---------- */
 
 sceneEl.addEventListener('loaded', () => {
+
     majPanneau('Saisissez un instrument.');
+
 });
